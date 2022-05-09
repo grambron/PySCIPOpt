@@ -1,5 +1,6 @@
 ##@file scip.pyx
 #@brief holding functions in python that reference the SCIP public functions included in scip.pxd
+import this
 import weakref
 from os.path import abspath
 from os.path import splitext
@@ -3267,6 +3268,104 @@ cdef class Model:
         self.setBoolParam("constraints/benderslp/active", True)
         self.setBoolParam("constraints/benders/active", True)
         #self.setIntParam("limits/maxorigsol", 0)
+
+    def propagate_by_presolve(self, assumptions):
+        """Adds constraints corresponding to assumptions and checks the status after presolving
+
+        Keyword arguments:
+        assumptions -- indexes of variables to be substituted
+        """
+        cdef Model copy_model
+        cdef int var_assumption
+        cdef int var_index
+        cdef SCIP_STATUS stat
+
+        copy_model = Model(sourceModel=self, threadsafe=False)
+
+        for var_assumption in assumptions:
+            var_index = abs(var_assumption) - 1
+            variable = copy_model.getVars()[var_index]
+
+            if var_assumption > 0:
+                copy_model.addCons(variable == 1)
+            else:
+                copy_model.addCons(variable == 0)
+
+        copy_model.presolve()
+        stat = SCIPgetStatus(copy_model._scip)
+
+        return stat != SCIP_STATUS_INFEASIBLE, {'time': SCIPgetPresolvingTime(copy_model._scip)}
+
+    def solve_with_variable_substitution(self, var_index_dict, assumptions):
+        """Removes the use of variables from the assumptions and solves the resulting model
+
+        Keyword arguments:
+        assumptions -- indexes of variables to be removed
+        """
+        cdef Model copy_model
+        cdef Constraint constr
+        cdef SCIP_Real rhs
+        cdef SCIP_Real lhs
+        cdef SCIP_Real bound
+        cdef Expr new_constr
+        cdef SCIP_Bool double_inequity
+        cdef int var_index
+
+        copy_model = Model(sourceModel=self)
+
+        for constr in copy_model.getConss():
+            vars_in_constr_map = copy_model.getValsLinear(constr)
+
+            rhs = copy_model.getRhs(constr)
+            lhs = copy_model.getLhs(constr)
+
+            # retrieve constraint bound for single inequity
+            # for example if constraint is 'x >= 10' then lhs = 10, rhs = 1e20, so constraint bound is 10
+            # for constraint 'x <= 10' lhs = -1e20, rhs = 1e20 and constraint bound is 10
+            bound = min(abs(rhs), abs(lhs))
+
+            double_inequity = (lhs != rhs) and (lhs > -1e20) and (rhs < 1e20)
+
+            new_constr = Expr()
+
+            for var_name in vars_in_constr_map.keys():
+                var_index = var_index_dict[var_name]
+
+                # 1) if var index is in assumptions then we need to decrease bound on var coefficient and
+                # don't add it to the new constraint
+                # 2) if -var index is in assumptions then this var is equals to 0 and we just don't need to add it
+                # to the new constraint
+                # 3) else we need to add this var with corresponding coefficient
+                if var_index in assumptions:
+                    if not double_inequity:
+                        bound -= vars_in_constr_map[var_name]
+                    else:
+                        rhs -= vars_in_constr_map[var_name]
+                        lhs -= vars_in_constr_map[var_name]
+                elif -var_index not in assumptions:
+                    new_constr += copy_model.getVars()[var_index - 1] * vars_in_constr_map[var_name]
+
+            if lhs != rhs:
+                if double_inequity:
+                    copy_model.addCons((rhs >= new_constr) >= lhs)
+                else:
+                    if lhs <= -1e20:
+                        copy_model.addCons(new_constr <= bound)
+                    elif rhs >= 1e20:
+                        copy_model.addCons(new_constr >= bound)
+                    else:
+                        raise Exception("illegal sign in constraint")
+            else:
+                copy_model.addCons(new_constr == bound)
+
+            copy_model.delCons(constr)
+
+        copy_model.optimize()
+
+        if copy_model.getStatus() == "optimal":
+            return True, {'time': copy_model.getSolvingTime()}, copy_model.getSolVal(copy_model.getBestSol(), copy_model.getObjective())
+        elif copy_model.getStatus() == "infeasible":
+            return False, {'time': copy_model.getSolvingTime()}, None
 
     def computeBestSolSubproblems(self):
         """Solves the subproblems with the best solution to the master problem.
