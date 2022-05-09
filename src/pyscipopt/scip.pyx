@@ -1,6 +1,5 @@
 ##@file scip.pyx
 #@brief holding functions in python that reference the SCIP public functions included in scip.pxd
-import this
 import weakref
 from os.path import abspath
 from os.path import splitext
