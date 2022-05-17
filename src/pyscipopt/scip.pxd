@@ -1863,11 +1863,9 @@ cdef class Model:
     # map to store python variables
     cdef _modelvars
 
-    cdef int test
+    cpdef int propagate_by_presolve(self, list assumptions)
 
-    cdef int propagate_by_presolve
-
-    cdef double solve_with_variable_substitution
+    cpdef double solve_with_variable_substitution(self, object var_index_dict, list assumptions)
 
     @staticmethod
     cdef create(SCIP* scip)

@@ -3268,13 +3268,6 @@ cdef class Model:
         self.setBoolParam("constraints/benders/active", True)
         #self.setIntParam("limits/maxorigsol", 0)
 
-    cpdef int test(self, int x, list data):
-        cdef int y = 1
-        cdef int i
-        for i in range(1, x + 1):
-            y *= i
-        return y
-
     cpdef int propagate_by_presolve(self, list assumptions):
         """Adds constraints corresponding to assumptions and checks the status after presolving
 
