@@ -3268,7 +3268,14 @@ cdef class Model:
         self.setBoolParam("constraints/benders/active", True)
         #self.setIntParam("limits/maxorigsol", 0)
 
-    def propagate_by_presolve(self, assumptions):
+    cpdef int test(self, int x, list data):
+        cdef int y = 1
+        cdef int i
+        for i in range(1, x + 1):
+            y *= i
+        return y
+
+    cpdef int propagate_by_presolve(self, list assumptions):
         """Adds constraints corresponding to assumptions and checks the status after presolving
 
         Keyword arguments:
@@ -3293,9 +3300,12 @@ cdef class Model:
         copy_model.presolve()
         stat = SCIPgetStatus(copy_model._scip)
 
-        return stat != SCIP_STATUS_INFEASIBLE, {'time': SCIPgetPresolvingTime(copy_model._scip)}
+        if stat != SCIP_STATUS_INFEASIBLE:
+            return 1
+        else:
+            return 0
 
-    def solve_with_variable_substitution(self, var_index_dict, assumptions):
+    cpdef double solve_with_variable_substitution(self, object var_index_dict, list assumptions):
         """Removes the use of variables from the assumptions and solves the resulting model
 
         Keyword arguments:
@@ -3362,9 +3372,9 @@ cdef class Model:
         copy_model.optimize()
 
         if copy_model.getStatus() == "optimal":
-            return True, {'time': copy_model.getSolvingTime()}, copy_model.getSolVal(copy_model.getBestSol(), copy_model.getObjective())
+            return copy_model.getSolVal(copy_model.getBestSol(), copy_model.getObjective())
         elif copy_model.getStatus() == "infeasible":
-            return False, {'time': copy_model.getSolvingTime()}, None
+            return 0.0
 
     def computeBestSolSubproblems(self):
         """Solves the subproblems with the best solution to the master problem.
